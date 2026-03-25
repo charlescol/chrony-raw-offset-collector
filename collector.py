@@ -23,7 +23,6 @@ class Config:
     obs_margin: float
     min_sleep_seconds: int
     max_sleep_seconds: int
-    chrony_socket: Path
     node_name: str
     state_file: Path
     log_file: Path
@@ -47,7 +46,6 @@ def build_config() -> Config:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     node_name = os.getenv("NODE_NAME", socket.gethostname())
-    chrony_socket = Path(os.getenv("CHRONY_SOCKET", "/var/run/chrony/chronyd.sock"))
 
     source_pattern = os.getenv(
         "SOURCE_REGEX",
@@ -64,7 +62,6 @@ def build_config() -> Config:
         obs_margin=obs_margin,
         min_sleep_seconds=min_sleep_seconds,
         max_sleep_seconds=max_sleep_seconds,
-        chrony_socket=chrony_socket,
         node_name=node_name,
         state_file=output_dir / f"state-{node_name}.txt",
         log_file=output_dir / f"raw-offset-{node_name}.csv",
@@ -79,8 +76,8 @@ def configure_logging() -> None:
     )
 
 
-def run_chronyc(config: Config, *args: str) -> str:
-    cmd = ["chronyc", "-h", str(config.chrony_socket), *args]
+def run_chronyc(*args: str) -> str:
+    cmd = ["chronyc", *args]
     result = subprocess.run(
         cmd,
         stdout=subprocess.PIPE,
@@ -99,15 +96,8 @@ def check_requirements(config: Config) -> None:
     if shutil.which("chronyc") is None:
         raise RuntimeError("chronyc is not installed in the container")
 
-    if not config.chrony_socket.exists():
-        raise RuntimeError(f"chronyd socket path does not exist: {config.chrony_socket}")
-
-    if not config.chrony_socket.is_socket():
-        raise RuntimeError(f"chronyd socket is not a socket: {config.chrony_socket}")
-
-    _ = run_chronyc(config, "tracking")
-    logging.info("chronyd is reachable through %s", config.chrony_socket)
-
+    _ = run_chronyc("tracking")
+    logging.info("chronyc is reachable")
 
 def parse_update_interval_seconds(tracking_output: str) -> float:
     match = re.search(r"^Update interval\s*:\s*([0-9]+(?:\.[0-9]+)?)\s+seconds", tracking_output, re.MULTILINE)
@@ -117,7 +107,7 @@ def parse_update_interval_seconds(tracking_output: str) -> float:
 
 
 def get_sleep_seconds(config: Config) -> int:
-    tracking_output = run_chronyc(config, "tracking")
+    tracking_output = run_chronyc("tracking")
     update_interval_s = parse_update_interval_seconds(tracking_output)
 
     sleep_seconds = math.ceil(update_interval_s * config.obs_margin)
@@ -166,7 +156,7 @@ def parse_source_line(line: str) -> tuple[str, str, str, str]:
 
 
 def read_raw_offset_sample(config: Config, sleep_seconds: int) -> RawOffsetSample:
-    sources_output = run_chronyc(config, "sources", "-v")
+    sources_output = run_chronyc("sources", "-v")
     line = find_source_line(config, sources_output)
     if line is None:
         raise RuntimeError(
