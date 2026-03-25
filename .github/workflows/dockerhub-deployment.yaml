@@ -1,0 +1,58 @@
+name: Docker Hub Deployment
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      # Check out the repository at full depth
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Extract tag version
+        id: extract_tag_version
+        run: |
+          echo "Tag is $GITHUB_REF"
+          TAG_VERSION=$(echo "${GITHUB_REF##*/}")
+          echo "TAG_VERSION=$TAG_VERSION" >> $GITHUB_ENV
+
+      # Start pipeline
+      - name: Start Pipeline
+        run: echo "Start Pipeline on ${{ github.ref_name }}"
+
+      # Docker login to Docker Hub
+      - name: Docker login to Docker Hub
+        run: |
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login --username ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
+
+      # Build & deploy to Docker Hub
+      - name: Build & Deploy to Docker Hub
+        run: |
+          # Define the repository and tag for Docker Hub
+          REPO="${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_REPO }}"
+          TAG="$REPO:$TAG_VERSION"
+          PREVIOUS_IMAGE="$REPO:latest"
+
+          # Pull previous image as a cache source (if exists)
+          docker pull "$PREVIOUS_IMAGE" || true
+
+          # Build image with cache-from
+          docker build \
+            --cache-from="$PREVIOUS_IMAGE" \
+            -t "$TAG" \
+            -f Dockerfile \
+            .
+
+          # push to Docker Hub
+          docker push "$TAG"
+
+          # Make TAG available to subsequent steps
+          echo "TAG=$TAG" >> $GITHUB_ENV
