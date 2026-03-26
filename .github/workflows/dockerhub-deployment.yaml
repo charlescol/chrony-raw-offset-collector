@@ -3,7 +3,7 @@ name: Docker Hub Deployment
 on:
   push:
     tags:
-      - "v*.*.*"
+      - "*.*.*"
   workflow_dispatch:
 
 jobs:
